@@ -10,18 +10,21 @@ import SwiftData
 
 struct ContentView: View {
     @Environment(\.modelContext) private var context
-    @Query(sort: \TaskEntry.createdAt, order: .forward) private var allTasks: [TaskEntry]
+    // Fetch all tasks sorted by position so manual ordering persists without jitter
+    @Query(sort: \TaskEntry.position, order: .forward) private var allTasks: [TaskEntry]
     @Environment(\.editMode) private var editMode
 
     @State private var showingAddSheet = false
     @State private var rawInput: String = ""
     @State private var now: Date = Date()
+    @State private var completedFirst: Bool = false // false = incomplete first
+    @State private var forceEditMode: EditMode = .active // keep reordering handles visible without explicit Edit button
 
     private var todaysTasks: [TaskEntry] {
-        // Single source of truth: always ordered purely by position.
-        // Grouping is only applied when user taps Sort (which rewrites positions).
-        return TaskEntry.tasks(for: now, in: allTasks)
-            .sorted { $0.position < $1.position }
+        let base = TaskEntry.tasks(for: now, in: allTasks)
+        let incompletes = base.filter { !$0.isCompleted }
+        let completes = base.filter { $0.isCompleted }
+        return completedFirst ? (completes + incompletes) : (incompletes + completes)
     }
 
     private var dateFormatter: DateFormatter = {
@@ -55,15 +58,14 @@ struct ContentView: View {
                         .accessibilityLabel("History")
                 }
                 ToolbarItemGroup(placement: .primaryAction) {
-                    Button { sortGroupIncompleteFirst() } label: {
-                        Image(systemName: "arrow.up.arrow.down.circle")
-                            .font(.title2)
+                    Button { completedFirst.toggle(); normalizePositionsStable() } label: {
+                        Image(systemName: completedFirst ? "arrow.down" : "arrow.up")
+                            .font(.system(size: 16))
                     }
-                    .accessibilityLabel("Group Incomplete First")
+                    .accessibilityLabel(completedFirst ? "Completed first" : "Incomplete first")
                     Button { showingAddSheet = true } label: {
-                        Image(systemName: "plus.circle.fill")
-                            .symbolRenderingMode(.hierarchical)
-                            .font(.title2)
+                        Image(systemName: "plus")
+                            .font(.system(size: 16))
                     }
                     .accessibilityLabel("Add Tasks")
                 }
@@ -94,6 +96,7 @@ struct ContentView: View {
             }
             .onAppear { refreshDateIfNeeded() }
         }
+        .environment(\.editMode, $forceEditMode) // keep List in edit mode for drag handles
     }
 
     private var parsedInput: [String] { TaskInputParser.parse(rawInput) }
@@ -118,31 +121,55 @@ struct ContentView: View {
     }
 
     private func toggle(_ task: TaskEntry) {
+        let wasCompleted = task.isCompleted
         task.isCompleted.toggle()
-        // No automatic positional jump; user decides when to regroup via Sort button.
+        if wasCompleted != task.isCompleted {
+            // Put toggled task at end of its new group
+            let siblings = TaskEntry.tasks(for: now, in: allTasks).filter { $0.isCompleted == task.isCompleted && $0.id != task.id }
+            let maxPos = siblings.map { $0.position }.max() ?? 0
+            task.position = maxPos + 1
+            normalizePositionsStable()
+        }
         do { try context.save() } catch { print("Toggle save error: \(error)") }
     }
 
     private func move(from source: IndexSet, to destination: Int) {
-        // Work on a mutable copy of current order (already sorted with incomplete first)
-        var ordered = todaysTasks.sorted { $0.position < $1.position } // ensure raw positional order for adjustment
-        ordered.move(fromOffsets: source, toOffset: destination)
-        // Reassign positions sequentially (keep incomplete/complete grouping implicit by order user sees)
-        for (idx, task) in ordered.enumerated() {
-            task.position = Double(idx + 1)
-        }
+        // Limit drag within same completion group
+        var visible = todaysTasks
+        guard let first = source.first else { return }
+        let movingCompleted = visible[first].isCompleted
+        if source.contains(where: { visible[$0].isCompleted != movingCompleted }) { return }
+        let groupIndices = visible.enumerated().filter { $0.element.isCompleted == movingCompleted }.map { $0.offset }
+        guard let minG = groupIndices.min(), let maxG = groupIndices.max() else { return }
+        let dest = max(min(destination, maxG + 1), minG)
+        // Build slice
+        var slice = groupIndices.map { visible[$0] }
+        let relativeSource = IndexSet(source.compactMap { groupIndices.firstIndex(of: $0) })
+        let relativeDest: Int = {
+            if dest > maxG { return slice.count }
+            return groupIndices.firstIndex(of: dest) ?? slice.count
+        }()
+        slice.move(fromOffsets: relativeSource, toOffset: relativeDest)
+        // Reassemble blocks in chosen group order
+        let other = visible.filter { $0.isCompleted != movingCompleted }
+        let firstBlock = completedFirst ? (movingCompleted ? slice : other) : (movingCompleted ? other : slice)
+        let secondBlock = completedFirst ? (movingCompleted ? other : slice) : (movingCompleted ? slice : other)
+        let final = firstBlock + secondBlock
+        // Renumber sequential positions
+        var counter = 1.0
+        for t in final { t.position = counter; counter += 1 }
         do { try context.save() } catch { print("Reorder save error: \(error)") }
     }
 
-    private func sortGroupIncompleteFirst() {
-        // Reassign positions so incomplete tasks (preserving relative order) are first.
-        let incompletes = todaysTasks.filter { !$0.isCompleted }
-        let completes = todaysTasks.filter { $0.isCompleted }
+    private func normalizePositionsStable() {
+        // Normalize across current visual order to keep positions tight
         var counter = 1.0
-        for t in incompletes { t.position = counter; counter += 1 }
-        for t in completes { t.position = counter; counter += 1 }
-        do { try context.save() } catch { print("Sort save error: \(error)") }
+        for t in todaysTasks { t.position = counter; counter += 1 }
     }
+
+    // Removed manual ordering & persistence: only two alphabetical group states remain.
+
+    // Removed manual drag/complex multi-state sort; simple toggle only.
 
     private func refreshDateIfNeeded() {
         // If app stayed open over midnight, refresh displayed day
