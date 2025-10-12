@@ -42,6 +42,12 @@ struct ContentView: View {
         let completes = base.filter { $0.isCompleted }
         return completedFirst ? (completes + incompletes) : (incompletes + completes)
     }
+    
+    private var completionProgress: Double {
+        guard !todaysTasks.isEmpty else { return 0 }
+        let completed = todaysTasks.filter { $0.isCompleted }.count
+        return Double(completed) / Double(todaysTasks.count)
+    }
 
     private var dateFormatter: DateFormatter = {
         let df = DateFormatter()
@@ -53,26 +59,36 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             Group {
-                List {
-                    if !todaysTasks.isEmpty {
-                        ForEach(todaysTasks) { task in
-                            TaskCardView(task: task)
-                                .onTapGesture { toggle(task) }
-                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                    Button(role: .destructive) { deleteTask(task) } label: {
-                                        Label("Delete", systemImage: "trash")
+                VStack(spacing: 0) {
+                    List {
+                        if !todaysTasks.isEmpty {
+                            ForEach(todaysTasks) { task in
+                                TaskCardView(task: task)
+                                    .onTapGesture { toggle(task) }
+                                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                        Button(role: .destructive) { deleteTask(task) } label: {
+                                            Label("Delete", systemImage: "trash")
+                                        }
+                                        Button { beginEdit(task) } label: {
+                                            Label("Edit", systemImage: "pencil")
+                                        }.tint(.blue)
                                     }
-                                    Button { beginEdit(task) } label: {
-                                        Label("Edit", systemImage: "pencil")
-                                    }.tint(.blue)
-                                }
+                            }
                         }
+                        
+                        // Quick entry card at bottom
+                        QuickEntryCardView(text: $quickEntryText, isFocused: $quickEntryFocused, onCreate: quickCreateTask)
                     }
+                    .listStyle(.plain)
                     
-                    // Quick entry card at bottom
-                    QuickEntryCardView(text: $quickEntryText, isFocused: $quickEntryFocused, onCreate: quickCreateTask)
+                    // Fixed progress bar at bottom (only show if tasks exist)
+                    if !todaysTasks.isEmpty {
+                        ProgressBarView(progress: completionProgress)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(.ultraThinMaterial)
+                    }
                 }
-                .listStyle(.plain)
             }
             .navigationTitle(dateFormatter.string(from: now))
             .navigationBarTitleDisplayMode(.inline) // use compact inline style
@@ -288,6 +304,77 @@ struct ContentView: View {
         let cal = Calendar.current
         if !cal.isDate(now, inSameDayAs: Date()) {
             now = Date()
+        }
+    }
+}
+
+struct ProgressBarView: View {
+    let progress: Double
+    @State private var animatedProgress: Double = 0
+    
+    private var progressColor: Color {
+        // Interpolate from light red to light green
+        let red = Color.red.opacity(0.3)
+        let green = Color.green.opacity(0.3)
+        return Color(
+            red: (1 - progress) * 0.8 + progress * 0.2,
+            green: progress * 0.8 + (1 - progress) * 0.2,
+            blue: 0.2
+        )
+    }
+    
+    var body: some View {
+        VStack(spacing: 8) {
+            HStack {
+                Text("Progress")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("\(Int(progress * 100))%")
+                    .font(.caption.bold())
+                    .foregroundStyle(.primary)
+            }
+            
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    // Background
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.gray.opacity(0.2))
+                        .frame(height: 8)
+                    
+                    // Progress fill with animation
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(progressColor)
+                        .frame(width: geometry.size.width * animatedProgress, height: 8)
+                        .animation(.easeInOut(duration: 0.8), value: animatedProgress)
+                    
+                    // Shimmer effect when completing
+                    if animatedProgress > 0.9 {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(
+                                LinearGradient(
+                                    colors: [.clear, .white.opacity(0.6), .clear],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                            .frame(width: 30, height: 8)
+                            .offset(x: animatedProgress > 0.99 ? geometry.size.width : -30)
+                            .animation(.easeInOut(duration: 1.5).repeatForever(autoreverses: false), value: animatedProgress > 0.99)
+                    }
+                }
+            }
+            .frame(height: 8)
+        }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 0.8)) {
+                animatedProgress = progress
+            }
+        }
+        .onChange(of: progress) { _, newValue in
+            withAnimation(.easeInOut(duration: 0.5)) {
+                animatedProgress = newValue
+            }
         }
     }
 }
