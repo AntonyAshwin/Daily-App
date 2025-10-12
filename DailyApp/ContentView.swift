@@ -25,6 +25,8 @@ struct ContentView: View {
     @State private var editingTask: TaskEntry? = nil
     @State private var editTitle: String = ""
     @State private var editTime: Date = Date()
+    @State private var quickEntryText: String = ""
+    @FocusState private var quickEntryFocused: Bool
 
     private struct DeletedSnapshot {
         let id: UUID
@@ -51,10 +53,8 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if todaysTasks.isEmpty {
-                    ContentUnavailableView("No Tasks Yet", systemImage: "calendar", description: Text("Add your tasks for today using the + button."))
-                } else {
-                    List {
+                List {
+                    if !todaysTasks.isEmpty {
                         ForEach(todaysTasks) { task in
                             TaskCardView(task: task)
                                 .onTapGesture { toggle(task) }
@@ -68,8 +68,11 @@ struct ContentView: View {
                                 }
                         }
                     }
-                    .listStyle(.plain)
+                    
+                    // Quick entry card at bottom
+                    QuickEntryCardView(text: $quickEntryText, isFocused: $quickEntryFocused, onCreate: quickCreateTask)
                 }
+                .listStyle(.plain)
             }
             .navigationTitle(dateFormatter.string(from: now))
             .navigationBarTitleDisplayMode(.inline) // use compact inline style
@@ -257,6 +260,25 @@ struct ContentView: View {
         editingTask = nil
     }
 
+    private func quickCreateTask() {
+        let trimmed = quickEntryText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        
+        let creationDate = Date()
+        let currentPositions = todaysTasks.map { $0.position }
+        let nextPos = (currentPositions.max() ?? 0) + 1
+        
+        let entry = TaskEntry(title: trimmed, createdAt: creationDate, isCompleted: false, position: nextPos)
+        context.insert(entry)
+        
+        do { try context.save() } catch { print("Quick create save error: \(error)") }
+        
+        // Clear text and maintain focus for rapid entry
+        quickEntryText = ""
+        quickEntryFocused = true
+        now = Date() // ensure today's date is current
+    }
+
     // Removed manual ordering & persistence: only two alphabetical group states remain.
 
     // Removed manual drag/complex multi-state sort; simple toggle only.
@@ -266,6 +288,39 @@ struct ContentView: View {
         let cal = Calendar.current
         if !cal.isDate(now, inSameDayAs: Date()) {
             now = Date()
+        }
+    }
+}
+
+struct QuickEntryCardView: View {
+    @Binding var text: String
+    @FocusState.Binding var isFocused: Bool
+    let onCreate: () -> Void
+    
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "circle")
+                .foregroundStyle(.gray)
+                .font(.title3)
+                .padding(.top, 2)
+            
+            TextField("Add new task...", text: $text)
+                .font(.headline)
+                .focused($isFocused)
+                .onSubmit {
+                    onCreate()
+                }
+                .textInputAutocapitalization(.sentences)
+            
+            Spacer()
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.gray.opacity(0.1), in: .rect(cornerRadius: 16))
+        .shadow(color: .black.opacity(0.06), radius: 4, x: 0, y: 2)
+        .contentShape(.rect)
+        .onTapGesture {
+            isFocused = true
         }
     }
 }
