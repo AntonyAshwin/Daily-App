@@ -12,13 +12,13 @@ struct ContentView: View {
     @Environment(\.modelContext) private var context
     // Fetch all tasks sorted by position so manual ordering persists without jitter
     @Query(sort: \TaskEntry.position, order: .forward) private var allTasks: [TaskEntry]
-    @Environment(\.editMode) private var editMode
+    // Removed edit mode / manual reordering
 
     @State private var showingAddSheet = false
     @State private var rawInput: String = ""
     @State private var now: Date = Date()
     @State private var completedFirst: Bool = false // false = incomplete first
-    @State private var forceEditMode: EditMode = .active // keep reordering handles visible without explicit Edit button
+    // Removed forceEditMode (no manual drag reorder)
     @State private var lastDeleted: DeletedSnapshot? = nil
     @State private var showUndoBar: Bool = false
     @State private var undoTimer: Timer? = nil
@@ -67,7 +67,6 @@ struct ContentView: View {
                                     }.tint(.blue)
                                 }
                         }
-                        .onMove(perform: move)
                     }
                     .listStyle(.plain)
                 }
@@ -138,7 +137,7 @@ struct ContentView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .environment(\.editMode, $forceEditMode) // keep List in edit mode for drag handles
+    // Reordering disabled: no editMode environment
         .sheet(item: $editingTask, onDismiss: { editingTask = nil }) { task in
             NavigationStack {
                 Form {
@@ -197,33 +196,6 @@ struct ContentView: View {
         do { try context.save() } catch { print("Toggle save error: \(error)") }
     }
 
-    private func move(from source: IndexSet, to destination: Int) {
-        // Limit drag within same completion group
-        var visible = todaysTasks
-        guard let first = source.first else { return }
-        let movingCompleted = visible[first].isCompleted
-        if source.contains(where: { visible[$0].isCompleted != movingCompleted }) { return }
-        let groupIndices = visible.enumerated().filter { $0.element.isCompleted == movingCompleted }.map { $0.offset }
-        guard let minG = groupIndices.min(), let maxG = groupIndices.max() else { return }
-        let dest = max(min(destination, maxG + 1), minG)
-        // Build slice
-        var slice = groupIndices.map { visible[$0] }
-        let relativeSource = IndexSet(source.compactMap { groupIndices.firstIndex(of: $0) })
-        let relativeDest: Int = {
-            if dest > maxG { return slice.count }
-            return groupIndices.firstIndex(of: dest) ?? slice.count
-        }()
-        slice.move(fromOffsets: relativeSource, toOffset: relativeDest)
-        // Reassemble blocks in chosen group order
-        let other = visible.filter { $0.isCompleted != movingCompleted }
-        let firstBlock = completedFirst ? (movingCompleted ? slice : other) : (movingCompleted ? other : slice)
-        let secondBlock = completedFirst ? (movingCompleted ? other : slice) : (movingCompleted ? slice : other)
-        let final = firstBlock + secondBlock
-        // Renumber sequential positions
-        var counter = 1.0
-        for t in final { t.position = counter; counter += 1 }
-        do { try context.save() } catch { print("Reorder save error: \(error)") }
-    }
 
     private func normalizePositionsStable() {
         // Normalize across current visual order to keep positions tight
