@@ -11,12 +11,21 @@ import SwiftData
 @main
 struct DailyAppApp: App {
     var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            TaskEntry.self
-        ])
-        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+        // Create configuration with a custom store filename to avoid previous incompatible store
+        let storeURL = URL.documentsDirectory.appending(path: "dailyapp.store")
+        let config = ModelConfiguration(url: storeURL)
+
+        // Clean up legacy default.store if present (one-time dev convenience)
         do {
-            return try ModelContainer(for: schema, configurations: [config])
+            let legacy = URL.documentsDirectory.appending(path: "default.store")
+            if FileManager.default.fileExists(atPath: legacy.path()) {
+                try FileManager.default.removeItem(at: legacy)
+            }
+        } catch {
+            print("Store cleanup warning: \(error)")
+        }
+        do {
+            return try ModelContainer(for: TaskEntry.self, configurations: config)
         } catch {
             fatalError("Could not create ModelContainer: \(error)")
         }

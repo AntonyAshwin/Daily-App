@@ -11,14 +11,17 @@ import SwiftData
 struct ContentView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \TaskEntry.createdAt, order: .forward) private var allTasks: [TaskEntry]
+    @Environment(\.editMode) private var editMode
 
     @State private var showingAddSheet = false
     @State private var rawInput: String = ""
     @State private var now: Date = Date()
 
     private var todaysTasks: [TaskEntry] {
-        TaskEntry.tasks(for: now, in: allTasks)
-        // Or if using predicate version above: todaysQueryTasks
+        // Single source of truth: always ordered purely by position.
+        // Grouping is only applied when user taps Sort (which rewrites positions).
+        return TaskEntry.tasks(for: now, in: allTasks)
+            .sorted { $0.position < $1.position }
     }
 
     private var dateFormatter: DateFormatter = {
@@ -34,16 +37,14 @@ struct ContentView: View {
                 if todaysTasks.isEmpty {
                     ContentUnavailableView("No Tasks Yet", systemImage: "calendar", description: Text("Add your tasks for today using the + button."))
                 } else {
-                    ScrollView {
-                        LazyVStack(spacing: 12) {
-                            ForEach(todaysTasks) { task in
-                                TaskCardView(task: task)
-                                    .onTapGesture { toggle(task) }
-                                    .animation(.spring(), value: task.isCompleted)
-                            }
+                    List {
+                        ForEach(todaysTasks) { task in
+                            TaskCardView(task: task)
+                                .onTapGesture { toggle(task) }
                         }
-                        .padding(.vertical)
+                        .onMove(perform: move)
                     }
+                    .listStyle(.plain)
                 }
             }
             .navigationTitle(dateFormatter.string(from: now))
@@ -53,7 +54,12 @@ struct ContentView: View {
                     NavigationLink(destination: HistoryView()) { Image(systemName: "clock.arrow.circlepath") }
                         .accessibilityLabel("History")
                 }
-                ToolbarItem(placement: .primaryAction) {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button { sortGroupIncompleteFirst() } label: {
+                        Image(systemName: "arrow.up.arrow.down.circle")
+                            .font(.title2)
+                    }
+                    .accessibilityLabel("Group Incomplete First")
                     Button { showingAddSheet = true } label: {
                         Image(systemName: "plus.circle.fill")
                             .symbolRenderingMode(.hierarchical)
@@ -96,9 +102,13 @@ struct ContentView: View {
         let titles = parsedInput
         guard !titles.isEmpty else { return }
         let creationDate = Date()
+        // Determine current max position among today's tasks
+        let currentPositions = todaysTasks.map { $0.position }
+        var nextPos = (currentPositions.max() ?? 0) + 1
         titles.forEach { title in
-            let entry = TaskEntry(title: title, createdAt: creationDate)
+            let entry = TaskEntry(title: title, createdAt: creationDate, position: nextPos)
             context.insert(entry)
+            nextPos += 1
         }
         do { try context.save() } catch { print("Save error: \(error)") }
         showingAddSheet = false
@@ -109,7 +119,29 @@ struct ContentView: View {
 
     private func toggle(_ task: TaskEntry) {
         task.isCompleted.toggle()
+        // No automatic positional jump; user decides when to regroup via Sort button.
         do { try context.save() } catch { print("Toggle save error: \(error)") }
+    }
+
+    private func move(from source: IndexSet, to destination: Int) {
+        // Work on a mutable copy of current order (already sorted with incomplete first)
+        var ordered = todaysTasks.sorted { $0.position < $1.position } // ensure raw positional order for adjustment
+        ordered.move(fromOffsets: source, toOffset: destination)
+        // Reassign positions sequentially (keep incomplete/complete grouping implicit by order user sees)
+        for (idx, task) in ordered.enumerated() {
+            task.position = Double(idx + 1)
+        }
+        do { try context.save() } catch { print("Reorder save error: \(error)") }
+    }
+
+    private func sortGroupIncompleteFirst() {
+        // Reassign positions so incomplete tasks (preserving relative order) are first.
+        let incompletes = todaysTasks.filter { !$0.isCompleted }
+        let completes = todaysTasks.filter { $0.isCompleted }
+        var counter = 1.0
+        for t in incompletes { t.position = counter; counter += 1 }
+        for t in completes { t.position = counter; counter += 1 }
+        do { try context.save() } catch { print("Sort save error: \(error)") }
     }
 
     private func refreshDateIfNeeded() {
