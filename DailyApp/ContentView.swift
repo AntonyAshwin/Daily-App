@@ -19,6 +19,20 @@ struct ContentView: View {
     @State private var now: Date = Date()
     @State private var completedFirst: Bool = false // false = incomplete first
     @State private var forceEditMode: EditMode = .active // keep reordering handles visible without explicit Edit button
+    @State private var lastDeleted: DeletedSnapshot? = nil
+    @State private var showUndoBar: Bool = false
+    @State private var undoTimer: Timer? = nil
+    @State private var editingTask: TaskEntry? = nil
+    @State private var editTitle: String = ""
+    @State private var editTime: Date = Date()
+
+    private struct DeletedSnapshot {
+        let id: UUID
+        let title: String
+        let createdAt: Date
+        let isCompleted: Bool
+        let formerPosition: Double
+    }
 
     private var todaysTasks: [TaskEntry] {
         let base = TaskEntry.tasks(for: now, in: allTasks)
@@ -44,6 +58,14 @@ struct ContentView: View {
                         ForEach(todaysTasks) { task in
                             TaskCardView(task: task)
                                 .onTapGesture { toggle(task) }
+                                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                    Button(role: .destructive) { deleteTask(task) } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                    Button { beginEdit(task) } label: {
+                                        Label("Edit", systemImage: "pencil")
+                                    }.tint(.blue)
+                                }
                         }
                         .onMove(perform: move)
                     }
@@ -96,7 +118,49 @@ struct ContentView: View {
             }
             .onAppear { refreshDateIfNeeded() }
         }
+        .overlay(alignment: .bottom) {
+            if showUndoBar, let snap = lastDeleted {
+                HStack(spacing: 12) {
+                    Text("Deleted \(snap.title)")
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .font(.subheadline)
+                    Spacer()
+                    Button("Undo") { undoDelete() }
+                        .font(.subheadline.bold())
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(.ultraThinMaterial, in: .capsule)
+                .shadow(radius: 4)
+                .padding(.bottom, 20)
+                .padding(.horizontal, 16)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
         .environment(\.editMode, $forceEditMode) // keep List in edit mode for drag handles
+        .sheet(item: $editingTask, onDismiss: { editingTask = nil }) { task in
+            NavigationStack {
+                Form {
+                    Section("Title") {
+                        TextField("Title", text: $editTitle)
+                            .textInputAutocapitalization(.sentences)
+                    }
+                    Section("Time") {
+                        DatePicker("Time", selection: $editTime, displayedComponents: .hourAndMinute)
+                            .datePickerStyle(.wheel)
+                    }
+                }
+                .navigationTitle("Edit Task")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { editingTask = nil } }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Save") { saveEdit() }
+                            .disabled(editTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+            }
+        }
     }
 
     private var parsedInput: [String] { TaskInputParser.parse(rawInput) }
@@ -165,6 +229,60 @@ struct ContentView: View {
         // Normalize across current visual order to keep positions tight
         var counter = 1.0
         for t in todaysTasks { t.position = counter; counter += 1 }
+    }
+
+    private func deleteTask(_ task: TaskEntry) {
+        // Capture snapshot
+        lastDeleted = DeletedSnapshot(id: task.id, title: task.title, createdAt: task.createdAt, isCompleted: task.isCompleted, formerPosition: task.position)
+        context.delete(task)
+        normalizePositionsStable()
+        do { try context.save() } catch { print("Delete save error: \\(error)") }
+        presentUndoBar()
+    }
+
+    private func presentUndoBar() {
+        undoTimer?.invalidate()
+        withAnimation { showUndoBar = true }
+        // Auto dismiss after 5 seconds
+        undoTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: false) { _ in
+            withAnimation { showUndoBar = false }
+            lastDeleted = nil
+        }
+    }
+
+    private func undoDelete() {
+        guard let snap = lastDeleted else { return }
+        // Recreate entry only if still same day to avoid reviving past history incorrectly
+    let entry = TaskEntry(title: snap.title, createdAt: snap.createdAt, isCompleted: snap.isCompleted, position: snap.formerPosition)
+        context.insert(entry)
+        normalizePositionsStable()
+        do { try context.save() } catch { print("Undo save error: \(error)") }
+        undoTimer?.invalidate()
+        withAnimation { showUndoBar = false }
+        lastDeleted = nil
+    }
+
+    private func beginEdit(_ task: TaskEntry) {
+        editingTask = task
+        editTitle = task.title
+        editTime = task.createdAt
+    }
+
+    private func saveEdit() {
+        guard let task = editingTask else { return }
+        let trimmed = editTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        task.title = trimmed
+        // Keep date component same, adjust time
+        let cal = Calendar.current
+        var dateParts = cal.dateComponents([.year, .month, .day], from: task.createdAt)
+        let timeParts = cal.dateComponents([.hour, .minute, .second], from: editTime)
+        dateParts.hour = timeParts.hour
+        dateParts.minute = timeParts.minute
+        dateParts.second = timeParts.second
+        if let newDate = cal.date(from: dateParts) { task.createdAt = newDate }
+        do { try context.save() } catch { print("Edit save error: \(error)") }
+        editingTask = nil
     }
 
     // Removed manual ordering & persistence: only two alphabetical group states remain.
