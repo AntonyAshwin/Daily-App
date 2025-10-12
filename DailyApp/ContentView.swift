@@ -323,34 +323,58 @@ struct ProgressBarView: View {
         )
     }
     
+    private var motivationalPhrase: String {
+        let percentage = Int(progress * 100)
+        switch percentage {
+        case 0: return "Let's get started!"
+        case 1...5: return "First step taken!"
+        case 6...10: return "Building momentum"
+        case 11...20: return "Getting warmed up"
+        case 21...30: return "Making progress"
+        case 31...40: return "Keep it rolling"
+        case 41...50: return "Halfway there!"
+        case 51...60: return "Over the hump"
+        case 61...70: return "Strong momentum"
+        case 71...75: return "Almost there"
+        case 76...80: return "On the home stretch"
+        case 81...85: return "So close now"
+        case 86...90: return "Final push"
+        case 91...95: return "Almost perfect"
+        case 96...99: return "One more to go"
+        case 100: return "All done! 🎉"
+        default: return "Keep going"
+        }
+    }
+    
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 12) {
             HStack {
-                Text("Progress")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text(motivationalPhrase)
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.primary)
+                    .animation(.easeInOut(duration: 0.3), value: motivationalPhrase)
                 Spacer()
                 Text("\(Int(progress * 100))%")
-                    .font(.caption.bold())
+                    .font(.subheadline.bold())
                     .foregroundStyle(.primary)
             }
             
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
                     // Background
-                    RoundedRectangle(cornerRadius: 8)
+                    RoundedRectangle(cornerRadius: 12)
                         .fill(Color.gray.opacity(0.2))
-                        .frame(height: 8)
+                        .frame(height: 20)
                     
                     // Progress fill with animation
-                    RoundedRectangle(cornerRadius: 8)
+                    RoundedRectangle(cornerRadius: 12)
                         .fill(progressColor)
-                        .frame(width: geometry.size.width * animatedProgress, height: 8)
+                        .frame(width: geometry.size.width * animatedProgress, height: 20)
                         .animation(.easeInOut(duration: 0.8), value: animatedProgress)
                     
                     // Shimmer effect when completing
                     if animatedProgress > 0.9 {
-                        RoundedRectangle(cornerRadius: 8)
+                        RoundedRectangle(cornerRadius: 12)
                             .fill(
                                 LinearGradient(
                                     colors: [.clear, .white.opacity(0.6), .clear],
@@ -358,13 +382,13 @@ struct ProgressBarView: View {
                                     endPoint: .trailing
                                 )
                             )
-                            .frame(width: 30, height: 8)
-                            .offset(x: animatedProgress > 0.99 ? geometry.size.width : -30)
+                            .frame(width: 40, height: 20)
+                            .offset(x: animatedProgress > 0.99 ? geometry.size.width : -40)
                             .animation(.easeInOut(duration: 1.5).repeatForever(autoreverses: false), value: animatedProgress > 0.99)
                     }
                 }
             }
-            .frame(height: 8)
+            .frame(height: 20)
         }
         .onAppear {
             withAnimation(.easeInOut(duration: 0.8)) {
