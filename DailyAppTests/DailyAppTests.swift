@@ -10,8 +10,9 @@ import Testing
 
 struct DailyAppTests {
 
-    @Test func example() async throws {
-        // Write your test here and use APIs like `#expect(...)` to check expected conditions.
+    @Test func parserTrimsAndSplits() throws {
+        let input = " Workout , Read Book, ,Meditate ,,  Code  "
+        let parsed = TaskInputParser.parse(input)
+        #expect(parsed == ["Workout", "Read Book", "Meditate", "Code"])
     }
-
 }
