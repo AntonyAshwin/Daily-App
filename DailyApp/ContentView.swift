@@ -11,8 +11,6 @@ import SwiftData
 struct ContentView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \TaskEntry.createdAt, order: .forward) private var allTasks: [TaskEntry]
-    // If filtering in memory fails for some reason, you can switch to a predicate-based query like:
-    // @Query(filter: #Predicate<TaskEntry> { Calendar.current.isDateInToday($0.createdAt) }, sort: \\TaskEntry.createdAt) private var todaysQueryTasks: [TaskEntry]
 
     @State private var showingAddSheet = false
     @State private var rawInput: String = ""
@@ -25,7 +23,8 @@ struct ContentView: View {
 
     private var dateFormatter: DateFormatter = {
         let df = DateFormatter()
-        df.dateStyle = .full
+        // Shorter header format (e.g. "Sun, 12 Oct") to avoid long large titles
+        df.setLocalizedDateFormatFromTemplate("E, d MMM")
         return df
     }()
 
@@ -48,6 +47,7 @@ struct ContentView: View {
                 }
             }
             .navigationTitle(dateFormatter.string(from: now))
+            .navigationBarTitleDisplayMode(.inline) // use compact inline style
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     NavigationLink(destination: HistoryView()) { Image(systemName: "clock.arrow.circlepath") }
@@ -96,17 +96,14 @@ struct ContentView: View {
         let titles = parsedInput
         guard !titles.isEmpty else { return }
         let creationDate = Date()
-        print("[CreateTasks] Parsed titles: \(titles)")
         titles.forEach { title in
             let entry = TaskEntry(title: title, createdAt: creationDate)
             context.insert(entry)
-            print("[CreateTasks] Inserted task: \(entry.title) at \(entry.createdAt)")
         }
-        do { try context.save(); print("[CreateTasks] Context save success") } catch { print("[CreateTasks] Save error: \(error)") }
+        do { try context.save() } catch { print("Save error: \(error)") }
         showingAddSheet = false
         rawInput = ""
         now = Date() // ensure today's date is current
-        // Force a refresh check
         refreshDateIfNeeded()
     }
 
