@@ -25,6 +25,7 @@ struct ContentView: View {
     @State private var editingTask: TaskEntry? = nil
     @State private var editTitle: String = ""
     @State private var editTime: Date = Date()
+    @State private var editIsDaily: Bool = false // NEW: for editing daily status
     @State private var quickEntryText: String = ""
     @FocusState private var quickEntryFocused: Bool
 
@@ -134,7 +135,10 @@ struct ContentView: View {
                     }
                 }
             }
-            .onAppear { refreshDateIfNeeded() }
+            .onAppear { 
+                refreshDateIfNeeded()
+                createDailyTasksIfNeeded() // NEW: Auto-create daily tasks
+            }
         }
         .overlay(alignment: .bottom) {
             if showUndoBar, let snap = lastDeleted {
@@ -156,7 +160,6 @@ struct ContentView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-    // Reordering disabled: no editMode environment
         .sheet(item: $editingTask, onDismiss: { editingTask = nil }) { task in
             NavigationStack {
                 Form {
@@ -167,6 +170,14 @@ struct ContentView: View {
                     Section("Time") {
                         DatePicker("Time", selection: $editTime, displayedComponents: .hourAndMinute)
                             .datePickerStyle(.wheel)
+                    }
+                    Section("Repeat") {
+                        Toggle("Daily Task", isOn: $editIsDaily)
+                        if editIsDaily {
+                            Text("This task will automatically be created every day")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
                 .navigationTitle("Edit Task")
@@ -257,6 +268,7 @@ struct ContentView: View {
         editingTask = task
         editTitle = task.title
         editTime = task.createdAt
+        editIsDaily = task.isDaily // NEW: Set daily status
     }
 
     private func saveEdit() {
@@ -264,6 +276,7 @@ struct ContentView: View {
         let trimmed = editTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         task.title = trimmed
+        task.isDaily = editIsDaily // NEW: Save daily status
         // Keep date component same, adjust time
         let cal = Calendar.current
         var dateParts = cal.dateComponents([.year, .month, .day], from: task.createdAt)
@@ -276,6 +289,54 @@ struct ContentView: View {
         editingTask = nil
     }
 
+    // NEW: Create daily tasks for today if they don't exist
+    private func createDailyTasksIfNeeded() {
+        let tasksToCreate = TaskEntry.dailyTasksNeedingCreation(for: now, in: allTasks)
+        
+        guard !tasksToCreate.isEmpty else { return }
+        
+        let currentPositions = todaysTasks.map { $0.position }
+        var nextPos = (currentPositions.max() ?? 0) + 1
+        
+        for template in tasksToCreate {
+            // Create new task based on template but for today
+            let cal = Calendar.current
+            let timeParts = cal.dateComponents([.hour, .minute, .second], from: template.createdAt)
+            var todayParts = cal.dateComponents([.year, .month, .day], from: now)
+            todayParts.hour = timeParts.hour
+            todayParts.minute = timeParts.minute
+            todayParts.second = timeParts.second
+            
+            let todayDate = cal.date(from: todayParts) ?? now
+            
+            let newTask = TaskEntry(
+                title: template.title,
+                createdAt: todayDate,
+                isCompleted: false,
+                position: nextPos,
+                isDaily: true
+            )
+            
+            context.insert(newTask)
+            nextPos += 1
+        }
+        
+        do { 
+            try context.save() 
+        } catch { 
+            print("Daily task creation error: \(error)") 
+        }
+    }
+
+    private func refreshDateIfNeeded() {
+        // If app stayed open over midnight, refresh displayed day
+        let cal = Calendar.current
+        if !cal.isDate(now, inSameDayAs: Date()) {
+            now = Date()
+            createDailyTasksIfNeeded() // Create daily tasks for new day
+        }
+    }
+
     private func quickCreateTask() {
         let trimmed = quickEntryText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -284,27 +345,17 @@ struct ContentView: View {
         let currentPositions = todaysTasks.map { $0.position }
         let nextPos = (currentPositions.max() ?? 0) + 1
         
-        let entry = TaskEntry(title: trimmed, createdAt: creationDate, isCompleted: false, position: nextPos)
+        let entry = TaskEntry(title: trimmed, createdAt: creationDate, position: nextPos)
         context.insert(entry)
         
-        do { try context.save() } catch { print("Quick create save error: \(error)") }
-        
-        // Clear text and maintain focus for rapid entry
-        quickEntryText = ""
-        quickEntryFocused = true
-        now = Date() // ensure today's date is current
-    }
-
-    // Removed manual ordering & persistence: only two alphabetical group states remain.
-
-    // Removed manual drag/complex multi-state sort; simple toggle only.
-
-    private func refreshDateIfNeeded() {
-        // If app stayed open over midnight, refresh displayed day
-        let cal = Calendar.current
-        if !cal.isDate(now, inSameDayAs: Date()) {
-            now = Date()
+        do { 
+            try context.save() 
+        } catch { 
+            print("Quick create save error: \(error)") 
         }
+        
+        quickEntryText = ""
+        // Keep focus on the text field - don't set quickEntryFocused = false
     }
 }
 
@@ -447,9 +498,16 @@ struct TaskCardView: View {
                 .font(.title3)
                 .padding(.top, 2)
             VStack(alignment: .leading, spacing: 4) {
-                Text(task.title)
-                    .font(.headline)
-                    .strikethrough(task.isCompleted, pattern: .solid, color: .primary.opacity(0.6))
+                HStack {
+                    Text(task.title)
+                        .font(.headline)
+                        .strikethrough(task.isCompleted, pattern: .solid, color: .primary.opacity(0.6))
+                    if task.isDaily {
+                        Image(systemName: "repeat")
+                            .font(.caption)
+                            .foregroundStyle(.blue)
+                    }
+                }
                 Text(task.createdAt, style: .time)
                     .font(.caption)
                     .foregroundStyle(.secondary)
