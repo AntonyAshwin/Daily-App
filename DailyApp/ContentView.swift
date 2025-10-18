@@ -61,26 +61,50 @@ struct ContentView: View {
         NavigationStack {
             Group {
                 VStack(spacing: 0) {
-                    List {
-                        if !todaysTasks.isEmpty {
-                            ForEach(todaysTasks) { task in
-                                TaskCardView(task: task)
-                                    .onTapGesture { toggle(task) }
-                                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                        Button(role: .destructive) { deleteTask(task) } label: {
-                                            Label("Delete", systemImage: "trash")
+                    ScrollViewReader { proxy in
+                        List {
+                            if !todaysTasks.isEmpty {
+                                ForEach(todaysTasks) { task in
+                                    TaskCardView(task: task)
+                                        .onTapGesture { toggle(task) }
+                                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                            Button(role: .destructive) { deleteTask(task) } label: {
+                                                Label("Delete", systemImage: "trash")
+                                            }
+                                            Button { beginEdit(task) } label: {
+                                                Label("Edit", systemImage: "pencil")
+                                            }.tint(.blue)
                                         }
-                                        Button { beginEdit(task) } label: {
-                                            Label("Edit", systemImage: "pencil")
-                                        }.tint(.blue)
+                                }
+                            }
+                            
+                            // Quick entry card at bottom
+                            QuickEntryCardView(text: $quickEntryText, isFocused: $quickEntryFocused, onCreate: quickCreateTask)
+                                .id("quickEntry")
+                            
+                            // Add extra tappable space when keyboard is focused for easy dismissal
+                            if quickEntryFocused {
+                                Color.clear
+                                    .frame(height: 200)
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        quickEntryFocused = false
                                     }
+                                    .listRowSeparator(.hidden)
+                                    .id("spacer")
                             }
                         }
-                        
-                        // Quick entry card at bottom
-                        QuickEntryCardView(text: $quickEntryText, isFocused: $quickEntryFocused, onCreate: quickCreateTask)
+                        .listStyle(.plain)
+                        .onChange(of: quickEntryFocused) { _, isFocused in
+                            if isFocused {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                    withAnimation(.easeInOut(duration: 0.5)) {
+                                        proxy.scrollTo("spacer", anchor: .bottom)
+                                    }
+                                }
+                            }
+                        }
                     }
-                    .listStyle(.plain)
                     
                     // Fixed progress bar at bottom (only show if tasks exist and keyboard not focused)
                     if !todaysTasks.isEmpty && !quickEntryFocused {
