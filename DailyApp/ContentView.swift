@@ -97,9 +97,16 @@ struct ContentView: View {
                         .listStyle(.plain)
                         .onChange(of: quickEntryFocused) { _, isFocused in
                             if isFocused {
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                    withAnimation(.easeInOut(duration: 0.5)) {
-                                        proxy.scrollTo("spacer", anchor: .bottom)
+                                // Use a longer delay and scroll to the text field itself first
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                    withAnimation(.easeInOut(duration: 0.6)) {
+                                        proxy.scrollTo("quickEntry", anchor: .center)
+                                    }
+                                    // Then scroll to spacer if it exists
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                        withAnimation(.easeInOut(duration: 0.4)) {
+                                            proxy.scrollTo("spacer", anchor: .bottom)
+                                        }
                                     }
                                 }
                             }
