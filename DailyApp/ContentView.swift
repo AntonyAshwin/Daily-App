@@ -348,14 +348,19 @@ struct ContentView: View {
         let entry = TaskEntry(title: trimmed, createdAt: creationDate, position: nextPos)
         context.insert(entry)
         
+        // Clear text first, before save
+        quickEntryText = ""
+        
         do { 
             try context.save() 
         } catch { 
             print("Quick create save error: \(error)") 
         }
         
-        quickEntryText = ""
-        // Keep focus on the text field - don't set quickEntryFocused = false
+        // Restore focus after a brief delay to ensure the view update completes
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            quickEntryFocused = true
+        }
     }
 }
 
@@ -473,6 +478,7 @@ struct QuickEntryCardView: View {
                     onCreate()
                 }
                 .textInputAutocapitalization(.sentences)
+                .submitLabel(.done)
             
             Spacer()
         }
