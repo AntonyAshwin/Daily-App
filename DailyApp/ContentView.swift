@@ -82,8 +82,8 @@ struct ContentView: View {
                     }
                     .listStyle(.plain)
                     
-                    // Fixed progress bar at bottom (only show if tasks exist)
-                    if !todaysTasks.isEmpty {
+                    // Fixed progress bar at bottom (only show if tasks exist and keyboard not focused)
+                    if !todaysTasks.isEmpty && !quickEntryFocused {
                         ProgressBarView(progress: completionProgress)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 12)
