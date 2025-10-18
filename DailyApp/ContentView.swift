@@ -135,11 +135,18 @@ struct ContentView: View {
                             .font(.system(size: 16))
                     }
                     .accessibilityLabel(completedFirst ? "Completed first" : "Incomplete first")
-                    Button { showingAddSheet = true } label: {
+                    
+                    Button { quickEntryFocused = true } label: {
                         Image(systemName: "plus")
                             .font(.system(size: 16))
                     }
-                    .accessibilityLabel("Add Tasks")
+                    .accessibilityLabel("Add Quick Task")
+                    
+                    Button { showingAddSheet = true } label: {
+                        Image(systemName: "square.and.pencil")
+                            .font(.system(size: 16))
+                    }
+                    .accessibilityLabel("Bulk Add Tasks")
                 }
             }
             .sheet(isPresented: $showingAddSheet, onDismiss: { rawInput = "" }) {
