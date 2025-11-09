@@ -85,25 +85,19 @@ extension TaskEntry {
     // NEW: Find daily tasks that need to be created for a specific day
     static func dailyTasksNeedingCreation(for day: Date, in tasks: [TaskEntry]) -> [TaskEntry] {
         let cal = Calendar.current
-        let dailyTasks = tasks.filter { $0.isDaily }
-        
-        // Group by title to find unique daily tasks
-        let dailyTasksByTitle = Dictionary(grouping: dailyTasks) { $0.title }
-        
+        // Group all tasks by title (include past days)
+        let grouped = Dictionary(grouping: tasks) { $0.title }
         var tasksToCreate: [TaskEntry] = []
-        
-        for (title, titleTasks) in dailyTasksByTitle {
-            // Check if this daily task already exists for the target day
-            let existsForDay = titleTasks.contains { cal.isDate($0.createdAt, inSameDayAs: day) }
-            
+        for (_, entries) in grouped {
+            guard let latest = entries.max(by: { $0.createdAt < $1.createdAt }) else { continue }
+            // Only consider if the latest instance is still marked daily
+            guard latest.isDaily else { continue }
+            // Skip if a task (daily or not) already exists for target day with same title
+            let existsForDay = entries.contains { cal.isDate($0.createdAt, inSameDayAs: day) }
             if !existsForDay {
-                // Find the most recent version of this daily task to use as template
-                if let template = titleTasks.max(by: { $0.createdAt < $1.createdAt }) {
-                    tasksToCreate.append(template)
-                }
+                tasksToCreate.append(latest)
             }
         }
-        
         return tasksToCreate
     }
 }

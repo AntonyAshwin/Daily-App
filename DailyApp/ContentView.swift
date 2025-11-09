@@ -313,8 +313,17 @@ struct ContentView: View {
         guard let task = editingTask else { return }
         let trimmed = editTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        let oldTitle = task.title
         task.title = trimmed
-        task.isDaily = editIsDaily // NEW: Save daily status
+        task.isDaily = editIsDaily
+
+        // If Daily turned off, propagate to prior tasks with same title to prevent resurrection
+        if !editIsDaily {
+            for t in allTasks where t.title == oldTitle {
+                t.isDaily = false
+            }
+        }
+
         // Keep date component same, adjust time
         let cal = Calendar.current
         var dateParts = cal.dateComponents([.year, .month, .day], from: task.createdAt)
